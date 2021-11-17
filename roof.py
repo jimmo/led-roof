@@ -154,8 +154,27 @@ async def flash(r,g,b,w=0):
 
 
 async def main():
+    if len(sys.argv) < 2:
+        return
     if sys.argv[1] == 'color':
         await color(*(int(x) for x in sys.argv[2:]))
+    elif sys.argv[1] == 'rainbow':
+
+        f = Frame(233, 9)
+        i = 0
+        while True:
+            fx = 1+(1*math.cos(i/91)*math.cos(i/79))
+            fy = 1+(1*math.sin(i/83)*math.sin(i/101))
+            tt = i / 10
+            for y in range(9):
+                for x in range(233):
+                    xx = x / 233
+                    yy = y / 9
+                    p1 = int(1200 * (math.sin(fy*math.pi*yy)+math.cos(fx*math.pi*xx) + 1))
+                    r,g,b = rainbow.rainbow(p1+i)
+                    f.pixel(x, y, r,g,b,0)
+            await f.write()
+            i += 0.1
 
 
 if __name__ == '__main__':
