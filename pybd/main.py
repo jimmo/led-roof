@@ -10,12 +10,26 @@ import gc
 
 import neopixel
 
-
 pins = [machine.Pin.board.X8, machine.Pin.board.Y8, machine.Pin.board.Y4]
 strips = []
 
+# MicroPython default:
+_TIMING_SPEC = (400, 850, 800, 450)
+
+# FastLED says
+# WS2812: C_NS(250), C_NS(625), C_NS(375)
+_TIMING_FASTLED_WS2812 = (250, 1000, 875, 375)
+# SK6812: C_NS(300), C_NS(300), C_NS(600)
+_TIMING_FASTLED_SK6812 = (300, 900, 600, 600)
+
+_CMD_ALL_COLOR = 0
+_CMD_STRIP_COLOR = 1
+_CMD_STRIP_PIXEL = 2
+_CMD_ALL_PIXEL = 3
+
+
 for i, n in enumerate(config.layout):
-    strips.append(neopixel.NeoPixel(pins[i], n, bpp=4))
+    strips.append(neopixel.NeoPixel(pins[i], n, bpp=4, timing=_TIMING_FASTLED_SK6812))
 
 
 try:
@@ -31,6 +45,13 @@ sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 print("Listening on", network.WLAN(network.STA_IF).ifconfig()[0], config.port)
 sock.bind((network.WLAN(network.STA_IF).ifconfig()[0], config.port))
 sock.setblocking(False)
+
+
+def c(rgbw):
+    for s in strips:
+        s.fill(rgbw)
+        s.write()
+
 
 
 def main():
@@ -58,18 +79,18 @@ def main():
             if packet_header != b'roof' or n < 6:
                 continue
             cmd = packet[4]
-            if cmd == 0 and n == 9:
+            if cmd == _CMD_ALL_COLOR and n == 9:
                 for strip in strips:
                     strip.fill(packet_0_rgbw)
                 for strip in strips:
                     strip.write()
-            if cmd == 1 and n == 10:
+            if cmd == _CMD_STRIP_COLOR and n == 10:
                 strip = packet[5]
                 if strip >= len(strips):
                     continue
                 strips[strip].fill(packet_1_rgbw)
                 strips[strip].write()
-            if cmd == 2:
+            if cmd == _CMD_STRIP_PIXEL:
                 strip = packet[5]
                 if strip >= len(strips):
                     continue
@@ -79,7 +100,7 @@ def main():
                 strips[strip].buf = packet_2_data
                 strips[strip].write()
                 strips[strip].buf = buf_tmp
-            if cmd == 3:
+            if cmd == _CMD_ALL_PIXEL:
                 if n != sum(s.n for s in strips) * 4 + 5:
                     continue
                 i = 0

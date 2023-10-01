@@ -2,7 +2,7 @@
 # MIT license; Copyright (c) 2016 Damien P. George, 2021 Jim Mussared
 
 from machine import bitstream
-
+import binascii
 
 class NeoPixel:
     # G R B W
@@ -47,4 +47,6 @@ class NeoPixel:
 
     def write(self, buf=None):
         # BITSTREAM_TYPE_HIGH_LOW = 0
+        # for i in range(len(self.buf) // 4):
+        #     print(binascii.hexlify(self.buf[i*4:i*4+4]))
         bitstream(self.pin, 0, self.timing, buf or self.buf)

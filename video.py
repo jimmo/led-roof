@@ -10,7 +10,7 @@ import roof
 
 
 async def process_frame(roof_frame, video_frame):
-    crop = int(sys.argv[2]) if len(sys.argv) >= 3 else 0
+    crop = 0#int(sys.argv[2]) if len(sys.argv) >= 3 else 0
     video_frame = cv2.resize(video_frame, dsize=(9 + crop*2, 233), interpolation=cv2.INTER_LINEAR)
     for y in range(233):
         for x in range(9):

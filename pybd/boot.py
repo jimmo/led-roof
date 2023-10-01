@@ -1,3 +1,3 @@
 import pyb
-pyb.country('US')
+pyb.country('AU')
 pyb.usb_mode('VCP')
