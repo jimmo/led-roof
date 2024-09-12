@@ -11,10 +11,13 @@ import rainbow
 
 _CMD_ALL_COLOR = 0
 _CMD_STRIP_COLOR = 1
-_CMD_STRIP_PIXEL = 2
-_CMD_ALL_PIXEL = 3
+_CMD_ALL_PIXEL = 2
+_CMD_STRIP_PIXEL = 3
+_CMD_SHADER = 4
 
 _CONTROLLER_DELAY = 0.015
+
+_FRAMES = 15
 
 
 class Controller:
@@ -22,8 +25,9 @@ class Controller:
         self._ip = socket.gethostbyname(hostname)
         self._port = port
         self._last = 0
-        self._sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self._q = []
+        self._udp_sock = None
+        self._tcp_sock = None
 
     async def _wait(self):
         while True:
@@ -33,12 +37,24 @@ class Controller:
             await asyncio.sleep(_CONTROLLER_DELAY - dt)
         self._last = time.monotonic()
 
-    async def _send(self, buf):
+    async def _send_tcp(self, buf):
+        if not self._tcp_sock:
+            self._tcp_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            self._tcp_sock.connect(socket.getaddrinfo(self._ip, self._port, socket.AF_INET, socket.SOCK_STREAM)[0][-1])
+
+        self._tcp_sock.send(buf)
+        self._tcp_sock.close()
+        self._tcp_sock = None
+
+    async def _send_udp(self, buf):
+        if not self._udp_sock:
+            self._udp_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+
         async def task():
             await self._wait()
             # print(self._ip, time.monotonic()-ttt)
             # print(buf)
-            self._sock.sendto(buf, (self._ip, self._port))
+            self._udp_sock.sendto(buf, (self._ip, self._port))
 
         self._q.append(asyncio.create_task(task()))
 
@@ -46,8 +62,12 @@ class Controller:
         await asyncio.gather(*self._q)
         self._q = []
 
-    async def color(self, r, g, b, w=0):
-        await self._send(b'roof' + struct.pack('BBBBB', _CMD_ALL_COLOR, r, g, b, w))
+    async def color(self, r, g, b, w=0, frames=_FRAMES):
+        await self._send_udp(b'roof' + struct.pack('>BBBBBB', _CMD_ALL_COLOR, frames, r, g, b, w))
+
+    async def shader(self, code, frames):
+        code = code.encode()
+        await self._send_tcp(b'roof' + struct.pack('>BBH', _CMD_SHADER, frames, len(code)) + code)
 
 
 class Beam:
@@ -60,14 +80,14 @@ class Beam:
     async def flush(self):
         await self._ctrl.flush()
 
-    async def color(self, r, g, b, w=0):
+    async def color(self, r, g, b, w=0, frames=0):
         if self._cal:
             r, g, b, w = self._cal(r, g, b, w)
-        await self._ctrl._send(b'roof' + struct.pack('BBBBBB', _CMD_STRIP_COLOR, self._idx, r, g, b, w))
+        await self._ctrl._send_udp(b'roof' + struct.pack('BBBBBBB', _CMD_STRIP_COLOR, self._idx, frames, r, g, b, w))
 
     async def pixel(self, buf):
         # g r b w
-        await self._ctrl._send(b'roof' + struct.pack('BB', _CMD_STRIP_PIXEL, self._idx) + buf)
+        await self._ctrl._send_udp(b'roof' + struct.pack('BB', _CMD_STRIP_PIXEL, self._idx) + buf)
 
     async def gradient(self, r, g, b, w=0):
         buf = bytearray()
@@ -83,6 +103,12 @@ class Beam:
         await self.pixel(buf)
 
 
+def fix_beam_2(r, g, b, w):
+    # if w and not g and not b:
+    #     r += (w + 3) // 4
+    return r, g, b, w
+
+
 CONTROLLERS = [
     Controller('roof-1', 6454),
     Controller('roof-2', 6454),
@@ -91,16 +117,10 @@ CONTROLLERS = [
 ]
 
 
-def fix_beam_2(r, g, b, w):
-    # if w and not g and not b:
-    #     r += (w + 3) // 4
-    return r, g, b, w
-
-
 BEAMS = [
     Beam(CONTROLLERS[0], 0, 180),
     Beam(CONTROLLERS[0], 1, 180),
-    Beam(CONTROLLERS[0], 2, 180, fix_beam_2),
+    Beam(CONTROLLERS[0], 2, 150),
     Beam(CONTROLLERS[1], 0, 180),
     Beam(CONTROLLERS[1], 1, 180),
     Beam(CONTROLLERS[2], 0, 233),
@@ -108,6 +128,17 @@ BEAMS = [
     Beam(CONTROLLERS[3], 0, 233),
     Beam(CONTROLLERS[3], 1, 233),
 ]
+
+# CONTROLLERS = [
+#     Controller('roof-test', 6454),
+# ]
+
+
+# BEAMS = [
+#     Beam(CONTROLLERS[0], 0, 4),
+#     Beam(CONTROLLERS[0], 1, 7),
+#     Beam(CONTROLLERS[0], 2, 10),
+# ]
 
 
 class Frame:
@@ -156,18 +187,18 @@ async def flush():
         await c.flush()
 
 
-async def color_raw(r,g,b,w=0):
+async def color(r,g,b,w=0,frames=_FRAMES):
     for c in CONTROLLERS:
-       await c.color(r,g,b,w)
+       await c.color(r,g,b,w,frames=frames)
     await flush()
 
-async def color(r,g,b,w=0):
-    # for c in CONTROLLERS:
-    #    await c.color(r,g,b,w)
-    for i in BEAMS:
-        await i.color(r,g,b,w)
-        await i.flush()
-    # await flush()
+# async def color(r,g,b,w=0):
+#     # for c in CONTROLLERS:
+#     #    await c.color(r,g,b,w)
+#     for i in BEAMS:
+#         await i.color(r,g,b,w)
+#         await i.flush()
+#     # await flush()
 
 async def gradient(r,g,b,w=0):
     for i in BEAMS:
@@ -179,6 +210,9 @@ async def flash(r,g,b,w=0):
     await color(r,g,b,w)
     await color(0,0,0,0)
 
+async def stop():
+    for c in CONTROLLERS:
+        await c.shader('', 0)
 
 async def main():
     if len(sys.argv) < 2:
@@ -338,6 +372,16 @@ async def main():
                 await color(r, g, b, w)
         finally:
             termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+    elif sys.argv[1] == 'shader':
+        # b[pi*4+0] = 0\n  b[pi*4+1] = 0\n  b[pi*4+2] = 0\n  b[pi*4+3] = 0\n
+        # await CONTROLLERS[0].shader('def pixel(si, pi, t, b):\n  b[pi*4+si] = (pi + t)%20\n\n', int(sys.argv[2]))
+        with open(sys.argv[2], "r") as f:
+            code = f.read()
+        for c in CONTROLLERS:
+            await c.shader(code, int(sys.argv[3]))
+    elif sys.argv[1] == 'stop':
+        for c in CONTROLLERS:
+            await c.shader('', 0)
     elif sys.argv[1] == 'test':
         i = 0
         while True:
